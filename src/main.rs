@@ -34,7 +34,6 @@ struct Choice {
 
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
-    #[serde(default)]
     choices: Vec<Choice>,
 }
 

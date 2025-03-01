@@ -1,6 +1,8 @@
-# PPQ Assistant
+# PPQ-based AI shell assistant
 
 A command-line tool for interacting with AI models and executing code snippets directly from their responses. It uses the [ppq.ai](https://ppq.ai) API, which is a proxy for many cutting-edge LLMs that doesn't require a subscription, but lets you pre-pay for queries using Bitcoin, Credit Card, or altcoins.
+
+![ppq-assistant screenshot](./screenshot.png)
 
 ## Configuration
 
