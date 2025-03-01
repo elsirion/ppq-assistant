@@ -176,14 +176,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let snippets = extract_code_snippets(&response);
 
     if snippets.is_empty() {
-        println!("{}", response);
-
-        println!("\n{}", "No executable code snippets found.".yellow());
+        eprintln!("{}", response);
+        eprintln!("\n{}", "No executable code snippets found.".yellow());
         return Ok(());
     }
 
     // Display the full response first
-    println!("{}", response);
+    eprintln!("{}", response);
 
     // Display and allow selection of code snippets
     if let Some(selected_snippet) = select_snippet(&snippets)? {
@@ -275,7 +274,7 @@ fn select_snippet(
         snippets
     };
 
-    println!("\n{}", "Select a code snippet to execute:".green().bold());
+    eprintln!("\n{}", "Select a code snippet to execute:".green().bold());
 
     // Display the snippets with their indices
     for (i, snippet) in display_snippets.iter().enumerate() {
@@ -291,7 +290,7 @@ fn select_snippet(
                 .bold()
         };
 
-        println!(
+        eprintln!(
             "{}: {} snippet ({} lines)",
             i.to_string().cyan().bold(),
             status_indicator,
@@ -300,17 +299,17 @@ fn select_snippet(
         // Preview first n lines
         const PREVIEW_LINES: usize = 3;
         for line in snippet.code.lines().take(PREVIEW_LINES) {
-            println!("   {}", line.trim());
+            eprintln!("   {}", line.trim());
         }
 
         if snippet.code.lines().count() > PREVIEW_LINES {
-            println!("   ...");
+            eprintln!("   ...");
         }
 
-        println!();
+        eprintln!();
     }
 
-    println!(
+    eprintln!(
         "Press a number key (0-9) to select, or use arrow keys and Enter. Ctrl+C or Esc to abort."
     );
 
@@ -322,19 +321,22 @@ fn select_snippet(
 
     loop {
         // Display selection indicator
-        print!("\r");
+        eprint!("\r");
         for i in 0..display_snippets.len() {
             if i == selected {
-                print!("[{}] ", i.to_string().green().bold());
+                eprint!("[{}] ", i.to_string().green().bold());
             } else {
-                print!(" {}  ", i.to_string().cyan());
+                eprint!(" {}  ", i.to_string().cyan());
             }
         }
-        print!("\r");
-        io::stdout().flush()?;
+        eprint!("\r");
+        io::stderr().flush()?;
 
         // Wait for a key press
-        if let Event::Key(KeyEvent { code, .. }) = event::read()? {
+        if let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = event::read()?
+        {
             match code {
                 KeyCode::Char('0'..='9') => {
                     let num = match code {
@@ -352,8 +354,11 @@ fn select_snippet(
                     result = Some(display_snippets[selected].clone());
                     break;
                 }
-                KeyCode::Esc | KeyCode::Char('c') if event::KeyModifiers::CONTROL.is_empty() => {
-                    break
+                KeyCode::Char('c') if modifiers == event::KeyModifiers::CONTROL => {
+                    break;
+                }
+                KeyCode::Esc => {
+                    break;
                 }
                 _ => {}
             }
@@ -362,7 +367,7 @@ fn select_snippet(
 
     // Disable raw mode
     disable_raw_mode()?;
-    println!();
+    eprintln!();
 
     Ok(result)
 }
@@ -385,7 +390,7 @@ fn execute_snippet(snippet: &CodeSnippet) -> Result<(), Box<dyn std::error::Erro
         .into());
     }
 
-    println!(
+    eprintln!(
         "\n{}\n",
         format!("Executing {} snippet...", lang.name).green().bold()
     );
@@ -403,7 +408,7 @@ fn execute_snippet(snippet: &CodeSnippet) -> Result<(), Box<dyn std::error::Erro
         .stderr(Stdio::inherit())
         .output()?;
 
-    println!(
+    eprintln!(
         "\n{}\n",
         if output.status.success() {
             "Execution completed successfully.".green().bold()
