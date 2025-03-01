@@ -1,0 +1,339 @@
+use clap::{Arg, Command};
+use colored::*;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent},
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
+use dirs::home_dir;
+use regex::Regex;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::{
+    fs::File,
+    io::{self, Read, Write},
+    process::{Command as ProcessCommand, Stdio},
+};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Message {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ChatRequest {
+    model: String,
+    messages: Vec<Message>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Choice {
+    message: Message,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatResponse {
+    choices: Vec<Choice>,
+}
+
+#[derive(Clone, Deserialize)]
+struct CodeSnippet {
+    language: String,
+    code: String,
+}
+
+// List of available models
+const AVAILABLE_MODELS: [&str; 20] = [
+    "deepseek-r1",
+    "gpt-4.5-preview",
+    "deepseek-chat",
+    "claude-3.7-sonnet",
+    "claude-3.5-sonnet",
+    "gpt-4o",
+    "llama-3.1-405b-instruct",
+    "llama-3-70b-instruct",
+    "gpt-4o-mini",
+    "gemini-flash-1.5",
+    "mixtral-8x7b-instruct",
+    "claude-3-5-haiku-20241022:beta",
+    "gemini-2.0-flash-exp",
+    "grok-2",
+    "qwq-32b-preview",
+    "nova-pro-v1",
+    "llama-3.1-nemotron-70b-instruct",
+    "gemini-flash-1.5",
+    "gpt-4",
+    "dolphin-mixtral-8x22b",
+];
+const DEFAULT_MODEL: &str = "claude-3.7-sonnet";
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let matches = Command::new("ppq-assistant")
+        .arg(
+            Arg::new("model")
+                .long("model")
+                .value_parser(AVAILABLE_MODELS)
+                .required(false)
+                .default_value(DEFAULT_MODEL)
+        )
+        .arg(
+            Arg::new("prompt")
+                .num_args(1..)
+                .required(true)
+        )
+        .get_matches();
+
+    // Parse arguments to extract prompt
+    let mut prompt_parts: Vec<String> = Vec::new();
+    let mut reached_delimiter = false;
+
+    if let Some(values) = matches.get_many::<String>("prompt") {
+        for arg in values {
+            if arg == "--" && !reached_delimiter {
+                reached_delimiter = true;
+                continue;
+            }
+
+            if reached_delimiter || !arg.starts_with("--") {
+                prompt_parts.push(arg.to_string());
+            }
+        }
+    }
+
+    let prompt = prompt_parts.join(" ");
+    if prompt.is_empty() {
+        eprintln!("Error: No prompt provided");
+        return Ok(());
+    }
+
+    // Get the model from arguments or use default
+    let model = matches
+        .get_one::<String>("model")
+        .expect("Default is set in clap");
+
+    // Read API key from ~/.ppq/api_key
+    let api_key = read_api_key()?;
+
+    // Make the API request
+    let response = send_request(&api_key, model, &prompt)?;
+
+    // Extract code snippets from the response
+    let snippets = extract_code_snippets(&response);
+
+    if snippets.is_empty() {
+        println!("{}", response);
+        println!("\n{}", "No executable code snippets found.".yellow());
+        return Ok(());
+    }
+
+    // Display the full response first
+    println!("{}", response);
+
+    // Display and allow selection of code snippets
+    if let Some(selected_snippet) = select_snippet(&snippets)? {
+        execute_snippet(&selected_snippet)?;
+    }
+
+    Ok(())
+}
+
+fn read_api_key() -> Result<String, Box<dyn std::error::Error>> {
+    let mut api_key_path = home_dir().ok_or("Could not find home directory")?;
+    api_key_path.push(".ppq");
+    api_key_path.push("api_key");
+
+    let mut file = File::open(&api_key_path)
+        .map_err(|_| format!("Could not open API key file at {:?}", api_key_path))?;
+
+    let mut api_key = String::new();
+    file.read_to_string(&mut api_key)?;
+
+    // Trim whitespace and newlines
+    Ok(api_key.trim().to_string())
+}
+
+async fn send_request_async(
+    api_key: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let client = Client::new();
+    let request = ChatRequest {
+        model: model.to_string(),
+        messages: vec![Message {
+            role: "user".to_string(),
+            content: prompt.to_string(),
+        }],
+    };
+
+    let response = client
+        .post("https://api.ppq.ai/chat/completions")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&request)
+        .send()
+        .await?;
+
+    let chat_response: ChatResponse = response.json().await?;
+    Ok(chat_response.choices[0].message.content.clone())
+}
+
+fn send_request(api_key: &str, model: &str, prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(send_request_async(api_key, model, prompt))
+}
+
+fn extract_code_snippets(markdown: &str) -> Vec<CodeSnippet> {
+    let code_block_regex = Regex::new(r"```(\w+)?\s*\n([\s\S]*?)\n```").unwrap();
+    let mut snippets = Vec::new();
+
+    for cap in code_block_regex.captures_iter(markdown) {
+        let language = cap.get(1).map_or("text", |m| m.as_str()).to_string();
+        let code = cap.get(2).map_or("", |m| m.as_str()).to_string();
+
+        // Only include executable snippets
+        if is_executable(&language) {
+            snippets.push(CodeSnippet {
+                language,
+                code,
+            });
+        }
+    }
+
+    snippets
+}
+
+fn is_executable(language: &str) -> bool {
+    matches!(
+        language,
+        "bash" | "sh" | "python" | "python3" | "js" | "javascript" | "node" | "ruby" | "perl" | "php"
+    )
+}
+
+fn select_snippet(snippets: &[CodeSnippet]) -> Result<Option<CodeSnippet>, Box<dyn std::error::Error>> {
+    // Only show the last 10 snippets if there are more than 10
+    let display_snippets = if snippets.len() > 10 {
+        &snippets[snippets.len() - 10..]
+    } else {
+        snippets
+    };
+
+    println!("\n{}", "Select a code snippet to execute:".green().bold());
+
+    // Display the snippets with their indices
+    for (i, snippet) in display_snippets.iter().enumerate() {
+        println!(
+            "{}: {} snippet ({} lines)",
+            i.to_string().cyan().bold(),
+            snippet.language.yellow().bold(),
+            snippet.code.lines().count()
+        );
+        // Preview first n lines
+        const PREVIEW_LINES: usize = 3;
+        for line in snippet.code.lines().take(PREVIEW_LINES) {
+            println!("   {}", line.trim());
+        }
+        
+        if snippet.code.lines().count() > PREVIEW_LINES {
+            println!("   ...");
+        }
+
+        println!();
+    }
+
+    println!("Press a number key (0-9) to select, or use arrow keys and Enter. Ctrl+C or Esc to abort.");
+
+    // Enable raw mode to capture keystrokes
+    enable_raw_mode()?;
+
+    let mut selected = 0;
+    let mut result = None;
+
+    loop {
+        // Display selection indicator
+        print!("\r");
+        for i in 0..display_snippets.len() {
+            if i == selected {
+                print!("[{}] ", i.to_string().green().bold());
+            } else {
+                print!(" {}  ", i.to_string().cyan());
+            }
+        }
+        print!("\r");
+        io::stdout().flush()?;
+
+        // Wait for a key press
+        if let Event::Key(KeyEvent { code, .. }) = event::read()? {
+            match code {
+                KeyCode::Char('0'..='9') => {
+                    let num = match code {
+                        KeyCode::Char(c) => c.to_digit(10).unwrap() as usize,
+                        _ => unreachable!(),
+                    };
+                    if num < display_snippets.len() {
+                        result = Some(display_snippets[num].clone());
+                        break;
+                    }
+                }
+                KeyCode::Left if selected > 0 => selected -= 1,
+                KeyCode::Right if selected < display_snippets.len() - 1 => selected += 1,
+                KeyCode::Enter => {
+                    result = Some(display_snippets[selected].clone());
+                    break;
+                }
+                KeyCode::Esc | KeyCode::Char('c') if event::KeyModifiers::CONTROL.is_empty() => break,
+                _ => {}
+            }
+        }
+    }
+
+    // Disable raw mode
+    disable_raw_mode()?;
+    println!();
+
+    Ok(result)
+}
+
+fn execute_snippet(snippet: &CodeSnippet) -> Result<(), Box<dyn std::error::Error>> {
+    println!(
+        "\n{}\n",
+        format!("Executing {} snippet...", snippet.language).green().bold()
+    );
+
+    let (command, args) = match snippet.language.as_str() {
+        "bash" | "sh" => ("bash", vec!["-c", &snippet.code]),
+        "python" | "python3" => ("python3", vec!["-c", &snippet.code]),
+        "js" | "javascript" | "node" => ("node", vec!["-e", &snippet.code]),
+        "ruby" => ("ruby", vec!["-e", &snippet.code]),
+        "perl" => ("perl", vec!["-e", &snippet.code]),
+        "php" => ("php", vec!["-r", &snippet.code]),
+        _ => {
+            println!("Unsupported language: {}", snippet.language);
+            return Ok(());
+        }
+    };
+
+    let output = ProcessCommand::new(command)
+        .args(&args)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output()?;
+
+    println!(
+        "\n{}\n",
+        if output.status.success() {
+            "Execution completed successfully.".green().bold()
+        } else {
+            format!(
+                "Execution failed with status: {}",
+                output.status.code().unwrap_or(-1)
+            )
+                .red()
+                .bold()
+        }
+    );
+
+    Ok(())
+}
