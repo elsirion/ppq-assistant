@@ -77,7 +77,8 @@ const AVAILABLE_MODELS: [&str; 20] = [
 ];
 const DEFAULT_MODEL: &str = "claude-3.7-sonnet";
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = Command::new("ppq-assistant")
         .arg(
             Arg::new("model")
@@ -126,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| config.default_model.clone());
 
     // Make the API request with config values
-    let response = send_request(&config.api_token, &model, &prompt)?;
+    let response = send_request_async(&config.api_token, &model, &prompt).await?;
 
     // Extract code snippets from the response
     let snippets = extract_code_snippets(&response);
@@ -195,13 +196,6 @@ async fn send_request_async(
 
     let chat_response: ChatResponse = response.json().await?;
     Ok(chat_response.choices[0].message.content.clone())
-}
-
-fn send_request(api_token: &str, model: &str, prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    rt.block_on(send_request_async(api_token, model, prompt))
 }
 
 fn extract_code_snippets(markdown: &str) -> Vec<CodeSnippet> {
