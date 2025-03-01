@@ -71,7 +71,7 @@ const SUPPORTED_LANGUAGES: &[SupportedLanguage] = &[
         name: "Python",
         markdown_tags: &["python", "python3"],
         executor: "python3",
-        execute_flags: &["-c"]  ,
+        execute_flags: &["-c"],
     },
     SupportedLanguage {
         name: "JavaScript",
@@ -132,13 +132,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .long("model")
                 .value_parser(AVAILABLE_MODELS)
                 .required(false)
-                .default_value(DEFAULT_MODEL)
+                .default_value(DEFAULT_MODEL),
         )
-        .arg(
-            Arg::new("prompt")
-                .num_args(1..)
-                .required(true)
-        )
+        .arg(Arg::new("prompt").num_args(1..).required(true))
         .get_matches();
 
     // Parse arguments to extract prompt
@@ -201,7 +197,9 @@ fn read_config() -> Result<Config, Box<dyn std::error::Error>> {
 
     // Create default config if file doesn't exist
     if !config_path.exists() {
-        return Err("Config file not found. Please create ~/.ppq/config.json with your API token".into());
+        return Err(
+            "Config file not found. Please create ~/.ppq/config.json with your API token".into(),
+        );
     }
 
     let file = File::open(&config_path)
@@ -255,10 +253,7 @@ fn extract_code_snippets(markdown: &str) -> Vec<CodeSnippet> {
 
         // Only include executable snippets
         if is_executable(&language) {
-            snippets.push(CodeSnippet {
-                language,
-                code,
-            });
+            snippets.push(CodeSnippet { language, code });
         }
     }
 
@@ -269,7 +264,9 @@ fn is_executable(language: &str) -> bool {
     find_language(language).is_ok()
 }
 
-fn select_snippet(snippets: &[CodeSnippet]) -> Result<Option<CodeSnippet>, Box<dyn std::error::Error>> {
+fn select_snippet(
+    snippets: &[CodeSnippet],
+) -> Result<Option<CodeSnippet>, Box<dyn std::error::Error>> {
     // Only show the last 10 snippets if there are more than 10
     let display_snippets = if snippets.len() > 10 {
         &snippets[snippets.len() - 10..]
@@ -281,7 +278,8 @@ fn select_snippet(snippets: &[CodeSnippet]) -> Result<Option<CodeSnippet>, Box<d
 
     // Display the snippets with their indices
     for (i, snippet) in display_snippets.iter().enumerate() {
-        let language = find_language(&snippet.language).expect("only supported languages are displayed");
+        let language =
+            find_language(&snippet.language).expect("only supported languages are displayed");
         println!(
             "{}: {} snippet ({} lines)",
             i.to_string().cyan().bold(),
@@ -293,7 +291,7 @@ fn select_snippet(snippets: &[CodeSnippet]) -> Result<Option<CodeSnippet>, Box<d
         for line in snippet.code.lines().take(PREVIEW_LINES) {
             println!("   {}", line.trim());
         }
-        
+
         if snippet.code.lines().count() > PREVIEW_LINES {
             println!("   ...");
         }
@@ -301,7 +299,9 @@ fn select_snippet(snippets: &[CodeSnippet]) -> Result<Option<CodeSnippet>, Box<d
         println!();
     }
 
-    println!("Press a number key (0-9) to select, or use arrow keys and Enter. Ctrl+C or Esc to abort.");
+    println!(
+        "Press a number key (0-9) to select, or use arrow keys and Enter. Ctrl+C or Esc to abort."
+    );
 
     // Enable raw mode to capture keystrokes
     enable_raw_mode()?;
@@ -341,7 +341,9 @@ fn select_snippet(snippets: &[CodeSnippet]) -> Result<Option<CodeSnippet>, Box<d
                     result = Some(display_snippets[selected].clone());
                     break;
                 }
-                KeyCode::Esc | KeyCode::Char('c') if event::KeyModifiers::CONTROL.is_empty() => break,
+                KeyCode::Esc | KeyCode::Char('c') if event::KeyModifiers::CONTROL.is_empty() => {
+                    break
+                }
                 _ => {}
             }
         }
@@ -370,7 +372,14 @@ fn execute_snippet(snippet: &CodeSnippet) -> Result<(), Box<dyn std::error::Erro
     );
 
     let output = ProcessCommand::new(lang.executor)
-        .args(&lang.execute_flags.iter().copied().chain(vec![snippet.code.as_str()]).collect::<Vec<&str>>())
+        .args(
+            &lang
+                .execute_flags
+                .iter()
+                .copied()
+                .chain(vec![snippet.code.as_str()])
+                .collect::<Vec<&str>>(),
+        )
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .output()?;
@@ -384,8 +393,8 @@ fn execute_snippet(snippet: &CodeSnippet) -> Result<(), Box<dyn std::error::Erro
                 "Execution failed with status: {}",
                 output.status.code().unwrap_or(-1)
             )
-                .red()
-                .bold()
+            .red()
+            .bold()
         }
     );
 
