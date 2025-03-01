@@ -52,6 +52,53 @@ struct Config {
     default_model: String,
 }
 
+#[derive(Debug)]
+struct SupportedLanguage {
+    name: &'static str,
+    markdown_tags: &'static [&'static str],
+    executor: &'static str,
+    execute_flags: &'static [&'static str],
+}
+
+const SUPPORTED_LANGUAGES: &[SupportedLanguage] = &[
+    SupportedLanguage {
+        name: "Bash",
+        markdown_tags: &["bash", "sh"],
+        executor: "bash",
+        execute_flags: &["-c"],
+    },
+    SupportedLanguage {
+        name: "Python",
+        markdown_tags: &["python", "python3"],
+        executor: "python3",
+        execute_flags: &["-c"]  ,
+    },
+    SupportedLanguage {
+        name: "JavaScript",
+        markdown_tags: &["js", "javascript", "node"],
+        executor: "node",
+        execute_flags: &["-e"],
+    },
+    SupportedLanguage {
+        name: "Ruby",
+        markdown_tags: &["ruby"],
+        executor: "ruby",
+        execute_flags: &["-e"],
+    },
+    SupportedLanguage {
+        name: "Perl",
+        markdown_tags: &["perl"],
+        executor: "perl",
+        execute_flags: &["-e"],
+    },
+    SupportedLanguage {
+        name: "PHP",
+        markdown_tags: &["php"],
+        executor: "php",
+        execute_flags: &["-r"],
+    },
+];
+
 // List of available models
 const AVAILABLE_MODELS: [&str; 20] = [
     "deepseek-r1",
@@ -219,10 +266,7 @@ fn extract_code_snippets(markdown: &str) -> Vec<CodeSnippet> {
 }
 
 fn is_executable(language: &str) -> bool {
-    matches!(
-        language,
-        "bash" | "sh" | "python" | "python3" | "js" | "javascript" | "node" | "ruby" | "perl" | "php"
-    )
+    find_language(language).is_ok()
 }
 
 fn select_snippet(snippets: &[CodeSnippet]) -> Result<Option<CodeSnippet>, Box<dyn std::error::Error>> {
@@ -237,10 +281,11 @@ fn select_snippet(snippets: &[CodeSnippet]) -> Result<Option<CodeSnippet>, Box<d
 
     // Display the snippets with their indices
     for (i, snippet) in display_snippets.iter().enumerate() {
+        let language = find_language(&snippet.language).expect("only supported languages are displayed");
         println!(
             "{}: {} snippet ({} lines)",
             i.to_string().cyan().bold(),
-            snippet.language.yellow().bold(),
+            language.name.yellow().bold(),
             snippet.code.lines().count()
         );
         // Preview first n lines
@@ -309,27 +354,23 @@ fn select_snippet(snippets: &[CodeSnippet]) -> Result<Option<CodeSnippet>, Box<d
     Ok(result)
 }
 
+fn find_language(language: &str) -> Result<&'static SupportedLanguage, String> {
+    SUPPORTED_LANGUAGES
+        .iter()
+        .find(|lang| lang.markdown_tags.contains(&language))
+        .ok_or_else(|| format!("Unsupported language: {}", language))
+}
+
 fn execute_snippet(snippet: &CodeSnippet) -> Result<(), Box<dyn std::error::Error>> {
+    let lang = find_language(&snippet.language)?;
+
     println!(
         "\n{}\n",
-        format!("Executing {} snippet...", snippet.language).green().bold()
+        format!("Executing {} snippet...", lang.name).green().bold()
     );
 
-    let (command, args) = match snippet.language.as_str() {
-        "bash" | "sh" => ("bash", vec!["-c", &snippet.code]),
-        "python" | "python3" => ("python3", vec!["-c", &snippet.code]),
-        "js" | "javascript" | "node" => ("node", vec!["-e", &snippet.code]),
-        "ruby" => ("ruby", vec!["-e", &snippet.code]),
-        "perl" => ("perl", vec!["-e", &snippet.code]),
-        "php" => ("php", vec!["-r", &snippet.code]),
-        _ => {
-            println!("Unsupported language: {}", snippet.language);
-            return Ok(());
-        }
-    };
-
-    let output = ProcessCommand::new(command)
-        .args(&args)
+    let output = ProcessCommand::new(lang.executor)
+        .args(&lang.execute_flags.iter().copied().chain(vec![snippet.code.as_str()]).collect::<Vec<&str>>())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .output()?;
