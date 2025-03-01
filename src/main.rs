@@ -34,6 +34,7 @@ struct Choice {
 
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
+    #[serde(default)]
     choices: Vec<Choice>,
 }
 
@@ -180,9 +181,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("\n{}", "No executable code snippets found.".yellow());
         return Ok(());
     }
-
-    // Display the full response first
-    eprintln!("{}", response);
 
     // Display and allow selection of code snippets
     if let Some(selected_snippet) = select_snippet(&snippets)? {
