@@ -10,7 +10,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
-    io::{self, Read, Write},
+    io::{self, Write},
+    path::PathBuf,
     process::{Command as ProcessCommand, Stdio},
 };
 
@@ -40,6 +41,15 @@ struct ChatResponse {
 struct CodeSnippet {
     language: String,
     code: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Config {
+    api_token: String,
+    #[serde(default = "default_api_url")]
+    api_url: String,
+    #[serde(default = "default_model")]
+    default_model: String,
 }
 
 // List of available models
@@ -106,16 +116,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Get the model from arguments or use default
+    // Read config file
+    let config = read_config()?;
+
+    // Get the model from arguments or use config default
     let model = matches
         .get_one::<String>("model")
-        .expect("Default is set in clap");
+        .cloned()
+        .unwrap_or_else(|| config.default_model.clone());
 
-    // Read API key from ~/.ppq/api_key
-    let api_key = read_api_key()?;
-
-    // Make the API request
-    let response = send_request(&api_key, model, &prompt)?;
+    // Make the API request with config values
+    let response = send_request(&config.api_token, &model, &prompt)?;
 
     // Extract code snippets from the response
     let snippets = extract_code_snippets(&response);
@@ -137,26 +148,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn read_api_key() -> Result<String, Box<dyn std::error::Error>> {
-    let mut api_key_path = home_dir().ok_or("Could not find home directory")?;
-    api_key_path.push(".ppq");
-    api_key_path.push("api_key");
+fn read_config() -> Result<Config, Box<dyn std::error::Error>> {
+    let config_path = get_config_path()?;
 
-    let mut file = File::open(&api_key_path)
-        .map_err(|_| format!("Could not open API key file at {:?}", api_key_path))?;
+    // Create default config if file doesn't exist
+    if !config_path.exists() {
+        return Err("Config file not found. Please create ~/.ppq/config.json with your API token".into());
+    }
 
-    let mut api_key = String::new();
-    file.read_to_string(&mut api_key)?;
+    let file = File::open(&config_path)
+        .map_err(|_| format!("Could not open config file at {:?}", config_path))?;
 
-    // Trim whitespace and newlines
-    Ok(api_key.trim().to_string())
+    let config: Config = serde_json::from_reader(file)?;
+    Ok(config)
+}
+
+fn get_config_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let mut config_path = home_dir().ok_or("Could not find home directory")?;
+    config_path.push(".ppq");
+    config_path.push("config.json");
+    Ok(config_path)
 }
 
 async fn send_request_async(
-    api_key: &str,
+    api_token: &str,
     model: &str,
     prompt: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let config = read_config()?;
     let client = Client::new();
     let request = ChatRequest {
         model: model.to_string(),
@@ -167,9 +186,9 @@ async fn send_request_async(
     };
 
     let response = client
-        .post("https://api.ppq.ai/chat/completions")
+        .post(&config.api_url)
         .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Authorization", format!("Bearer {}", api_token))
         .json(&request)
         .send()
         .await?;
@@ -178,11 +197,11 @@ async fn send_request_async(
     Ok(chat_response.choices[0].message.content.clone())
 }
 
-fn send_request(api_key: &str, model: &str, prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn send_request(api_token: &str, model: &str, prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.block_on(send_request_async(api_key, model, prompt))
+    rt.block_on(send_request_async(api_token, model, prompt))
 }
 
 fn extract_code_snippets(markdown: &str) -> Vec<CodeSnippet> {
@@ -336,4 +355,12 @@ fn execute_snippet(snippet: &CodeSnippet) -> Result<(), Box<dyn std::error::Erro
     );
 
     Ok(())
+}
+
+fn default_api_url() -> String {
+    "https://api.ppq.ai/chat/completions".to_string()
+}
+
+fn default_model() -> String {
+    DEFAULT_MODEL.to_string()
 }
