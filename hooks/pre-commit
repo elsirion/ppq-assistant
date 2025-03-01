@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Check if rustfmt is installed
+if ! command -v rustfmt &> /dev/null; then
+    echo "Error: rustfmt is not installed. Please enter the nix shell using 'nix develop'."
+    exit 1
+fi
+
+# Get all staged Rust files
+files=$(git diff --cached --name-only --diff-filter=ACMR | grep "\.rs$")
+
+if [ -n "$files" ]; then
+    # Check formatting
+    echo "Checking Rust formatting..."
+    
+    for file in $files; do
+        if ! cargo fmt -- --check "$file"; then
+            echo "Error: $file is not properly formatted"
+            echo "Please run 'cargo fmt' to format your code"
+            exit 1
+        fi
+    done
+fi
+
+exit 0 

@@ -177,6 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if snippets.is_empty() {
         println!("{}", response);
+
         println!("\n{}", "No executable code snippets found.".yellow());
         return Ok(());
     }

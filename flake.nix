@@ -18,7 +18,7 @@
           inherit system overlays;
         };
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" ];
+          extensions = [ "rust-src" "rustfmt" ];
         };
       in
       {
@@ -32,7 +32,14 @@
 
           shellHook = ''
             export RUST_SRC_PATH="${rustToolchain}/lib/rustlib/src/rust/library"
-            echo "Rust dev shell activated!"
+            
+            # Setup git hooks if not already present
+            if [ ! -f .git/hooks/pre-commit ]; then
+              mkdir -p .git/hooks
+              ln -sf ../../hooks/pre-commit .git/hooks/pre-commit
+              chmod +x hooks/pre-commit
+              echo "Git hooks installed!"
+            fi
           '';
         };
       }
