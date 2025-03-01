@@ -281,10 +281,20 @@ fn select_snippet(
     for (i, snippet) in display_snippets.iter().enumerate() {
         let language =
             find_language(&snippet.language).expect("only supported languages are displayed");
+
+        let interpreter_available = is_interpreter_available(language.interpreter);
+        let status_indicator = if interpreter_available {
+            language.name.yellow().bold()
+        } else {
+            format!("{} (interpreter not found)", language.name)
+                .red()
+                .bold()
+        };
+
         println!(
             "{}: {} snippet ({} lines)",
             i.to_string().cyan().bold(),
-            language.name.yellow().bold(),
+            status_indicator,
             snippet.code.lines().count()
         );
         // Preview first n lines
@@ -367,6 +377,14 @@ fn find_language(language: &str) -> Result<&'static SupportedLanguage, String> {
 fn execute_snippet(snippet: &CodeSnippet) -> Result<(), Box<dyn std::error::Error>> {
     let lang = find_language(&snippet.language)?;
 
+    if !is_interpreter_available(lang.interpreter) {
+        return Err(format!(
+            "Cannot execute snippet: {} interpreter not found. Please install {} to run this code.",
+            lang.name, lang.interpreter
+        )
+        .into());
+    }
+
     println!(
         "\n{}\n",
         format!("Executing {} snippet...", lang.name).green().bold()
@@ -408,4 +426,13 @@ fn default_api_url() -> String {
 
 fn default_model() -> String {
     DEFAULT_MODEL.to_string()
+}
+
+fn is_interpreter_available(interpreter: &str) -> bool {
+    ProcessCommand::new("which")
+        .arg(interpreter)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_or(false, |status| status.success())
 }
