@@ -276,6 +276,9 @@ fn select_snippet(
 
     eprintln!("\n{}", "Select a code snippet to execute:".green().bold());
 
+    let mut snippet_pos = vec![];
+    let mut cursor_pos = 0;
+
     // Display the snippets with their indices
     for (i, snippet) in display_snippets.iter().enumerate() {
         let language =
@@ -291,27 +294,29 @@ fn select_snippet(
         };
 
         eprintln!(
-            "{}: {} snippet ({} lines)",
+            " {} : {} snippet ({} lines)",
             i.to_string().cyan().bold(),
             status_indicator,
             snippet.code.lines().count()
         );
+        snippet_pos.push(cursor_pos);
+        cursor_pos += 1;
+
         // Preview first n lines
         const PREVIEW_LINES: usize = 3;
         for line in snippet.code.lines().take(PREVIEW_LINES) {
-            eprintln!("   {}", line.trim());
+            eprintln!("     {}", line.trim());
+            cursor_pos += 1;
         }
 
         if snippet.code.lines().count() > PREVIEW_LINES {
-            eprintln!("   ...");
+            eprintln!("     ...");
+            cursor_pos += 1;
         }
 
         eprintln!();
+        cursor_pos += 1;
     }
-
-    eprintln!(
-        "Press a number key (0-9) to select, or use arrow keys and Enter. Ctrl+C or Esc to abort."
-    );
 
     // Enable raw mode to capture keystrokes
     enable_raw_mode()?;
@@ -320,16 +325,24 @@ fn select_snippet(
     let mut result = None;
 
     loop {
-        // Display selection indicator
-        eprint!("\r");
-        for i in 0..display_snippets.len() {
-            if i == selected {
-                eprint!("[{}] ", i.to_string().green().bold());
-            } else {
-                eprint!(" {}  ", i.to_string().cyan());
-            }
+        // Update selection indicators by moving cursor
+        for (i, &pos) in snippet_pos.iter().enumerate() {
+            // Move cursor up by (cursor_pos - pos) lines
+            eprint!("\x1B[{}A", cursor_pos - pos);
+            // Move to start of line and clear selection area
+            eprint!("\r   ");
+            // Move back to start and print selection
+            eprint!(
+                "\r{}",
+                if i == selected {
+                    format!("[{}]", i.to_string().green().bold())
+                } else {
+                    format!(" {} ", i.to_string().cyan())
+                }
+            );
+            // Return cursor to bottom
+            eprint!("\x1B[{}B", cursor_pos - pos);
         }
-        eprint!("\r");
         io::stderr().flush()?;
 
         // Wait for a key press
@@ -348,8 +361,8 @@ fn select_snippet(
                         break;
                     }
                 }
-                KeyCode::Left if selected > 0 => selected -= 1,
-                KeyCode::Right if selected < display_snippets.len() - 1 => selected += 1,
+                KeyCode::Up if selected > 0 => selected -= 1,
+                KeyCode::Down if selected < display_snippets.len() - 1 => selected += 1,
                 KeyCode::Enter => {
                     result = Some(display_snippets[selected].clone());
                     break;
@@ -357,7 +370,7 @@ fn select_snippet(
                 KeyCode::Char('c') if modifiers == event::KeyModifiers::CONTROL => {
                     break;
                 }
-                KeyCode::Esc => {
+                KeyCode::Esc | KeyCode::Char('q') => {
                     break;
                 }
                 _ => {}
@@ -367,7 +380,6 @@ fn select_snippet(
 
     // Disable raw mode
     disable_raw_mode()?;
-    eprintln!();
 
     Ok(result)
 }
