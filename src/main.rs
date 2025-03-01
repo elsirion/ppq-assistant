@@ -56,46 +56,46 @@ struct Config {
 struct SupportedLanguage {
     name: &'static str,
     markdown_tags: &'static [&'static str],
-    executor: &'static str,
-    execute_flags: &'static [&'static str],
+    interpreter: &'static str,
+    interpreter_flags: &'static [&'static str],
 }
 
 const SUPPORTED_LANGUAGES: &[SupportedLanguage] = &[
     SupportedLanguage {
         name: "Bash",
         markdown_tags: &["bash", "sh"],
-        executor: "bash",
-        execute_flags: &["-c"],
+        interpreter: "bash",
+        interpreter_flags: &["-c"],
     },
     SupportedLanguage {
         name: "Python",
         markdown_tags: &["python", "python3"],
-        executor: "python3",
-        execute_flags: &["-c"],
+        interpreter: "python3",
+        interpreter_flags: &["-c"],
     },
     SupportedLanguage {
         name: "JavaScript",
         markdown_tags: &["js", "javascript", "node"],
-        executor: "node",
-        execute_flags: &["-e"],
+        interpreter: "node",
+        interpreter_flags: &["-e"],
     },
     SupportedLanguage {
         name: "Ruby",
         markdown_tags: &["ruby"],
-        executor: "ruby",
-        execute_flags: &["-e"],
+        interpreter: "ruby",
+        interpreter_flags: &["-e"],
     },
     SupportedLanguage {
         name: "Perl",
         markdown_tags: &["perl"],
-        executor: "perl",
-        execute_flags: &["-e"],
+        interpreter: "perl",
+        interpreter_flags: &["-e"],
     },
     SupportedLanguage {
         name: "PHP",
         markdown_tags: &["php"],
-        executor: "php",
-        execute_flags: &["-r"],
+        interpreter: "php",
+        interpreter_flags: &["-r"],
     },
 ];
 
@@ -372,10 +372,10 @@ fn execute_snippet(snippet: &CodeSnippet) -> Result<(), Box<dyn std::error::Erro
         format!("Executing {} snippet...", lang.name).green().bold()
     );
 
-    let output = ProcessCommand::new(lang.executor)
+    let output = ProcessCommand::new(lang.interpreter)
         .args(
             &lang
-                .execute_flags
+                .interpreter_flags
                 .iter()
                 .copied()
                 .chain(vec![snippet.code.as_str()])
